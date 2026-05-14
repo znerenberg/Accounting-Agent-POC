@@ -1,0 +1,391 @@
+export interface CodingDimensions {
+  glAccountCode: string;
+  glAccountName: string;
+  department: string | null;
+  class: string | null;
+  location: string | null;
+}
+
+export interface HistoricalLineItem {
+  billId: string;
+  vendorName: string;
+  description: string;
+  amount: number;
+  currency: string;
+  billedAt: string;
+  coding: CodingDimensions;
+}
+
+export const MOCK_HISTORICAL_LINE_ITEMS: HistoricalLineItem[] = [
+  // AWS - consistently coded to Cloud Infrastructure
+  {
+    billId: "bill_001",
+    vendorName: "Amazon Web Services",
+    description: "EC2 instances - production",
+    amount: 12450.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6200",
+      glAccountName: "Cloud Infrastructure",
+      department: "Engineering",
+      class: "Platform",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_002",
+    vendorName: "Amazon Web Services",
+    description: "EC2 instances - production workloads",
+    amount: 13200.0,
+    currency: "usd",
+    billedAt: "2026-03-01",
+    coding: {
+      glAccountCode: "6200",
+      glAccountName: "Cloud Infrastructure",
+      department: "Engineering",
+      class: "Platform",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_003",
+    vendorName: "Amazon Web Services",
+    description: "S3 storage",
+    amount: 3400.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6200",
+      glAccountName: "Cloud Infrastructure",
+      department: "Engineering",
+      class: "Platform",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_004",
+    vendorName: "Amazon Web Services",
+    description: "Data transfer out",
+    amount: 890.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6200",
+      glAccountName: "Cloud Infrastructure",
+      department: "Engineering",
+      class: "Platform",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_001",
+    vendorName: "Amazon Web Services",
+    description: "AWS Support - Business tier",
+    amount: 2100.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6210",
+      glAccountName: "Software Subscriptions",
+      department: "Engineering",
+      class: "Platform",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_005",
+    vendorName: "Amazon Web Services",
+    description: "RDS PostgreSQL - production database",
+    amount: 5600.0,
+    currency: "usd",
+    billedAt: "2026-03-01",
+    coding: {
+      glAccountCode: "6200",
+      glAccountName: "Cloud Infrastructure",
+      department: "Engineering",
+      class: "Platform",
+      location: "US - San Francisco",
+    },
+  },
+
+  // WeWork - Office / Facilities
+  {
+    billId: "bill_010",
+    vendorName: "WeWork",
+    description: "Office space rental - Floor 3",
+    amount: 45000.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6500",
+      glAccountName: "Office Rent",
+      department: "Operations",
+      class: "General & Administrative",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_011",
+    vendorName: "WeWork",
+    description: "Office space rental - Floor 3",
+    amount: 45000.0,
+    currency: "usd",
+    billedAt: "2026-03-01",
+    coding: {
+      glAccountCode: "6500",
+      glAccountName: "Office Rent",
+      department: "Operations",
+      class: "General & Administrative",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_010",
+    vendorName: "WeWork",
+    description: "Parking spaces (10)",
+    amount: 5000.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6510",
+      glAccountName: "Office Expenses",
+      department: "Operations",
+      class: "General & Administrative",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_012",
+    vendorName: "WeWork",
+    description: "Conference room add-on",
+    amount: 3500.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6510",
+      glAccountName: "Office Expenses",
+      department: "Operations",
+      class: "General & Administrative",
+      location: "US - San Francisco",
+    },
+  },
+
+  // Salesforce - split across Sales and Marketing
+  {
+    billId: "bill_020",
+    vendorName: "Salesforce",
+    description: "Sales Cloud Enterprise - 50 seats",
+    amount: 7500.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6210",
+      glAccountName: "Software Subscriptions",
+      department: "Sales",
+      class: "Revenue",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_021",
+    vendorName: "Salesforce",
+    description: "Sales Cloud Enterprise - 50 seats",
+    amount: 7500.0,
+    currency: "usd",
+    billedAt: "2026-03-01",
+    coding: {
+      glAccountCode: "6210",
+      glAccountName: "Software Subscriptions",
+      department: "Sales",
+      class: "Revenue",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_020",
+    vendorName: "Salesforce",
+    description: "Marketing Cloud - email campaigns",
+    amount: 3200.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6210",
+      glAccountName: "Software Subscriptions",
+      department: "Marketing",
+      class: "Growth",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_021",
+    vendorName: "Salesforce",
+    description: "Marketing Cloud - email automation",
+    amount: 3200.0,
+    currency: "usd",
+    billedAt: "2026-03-01",
+    coding: {
+      glAccountCode: "6210",
+      glAccountName: "Software Subscriptions",
+      department: "Marketing",
+      class: "Growth",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_020",
+    vendorName: "Salesforce",
+    description: "Tableau analytics - 10 viewer licenses",
+    amount: 1500.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6210",
+      glAccountName: "Software Subscriptions",
+      department: "Finance",
+      class: "General & Administrative",
+      location: "US - San Francisco",
+    },
+  },
+
+  // Baker McKenzie - Legal
+  {
+    billId: "bill_030",
+    vendorName: "Baker McKenzie LLP",
+    description: "Legal services - contract review",
+    amount: 18500.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6400",
+      glAccountName: "Legal & Professional Fees",
+      department: "Legal",
+      class: "General & Administrative",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_031",
+    vendorName: "Baker McKenzie LLP",
+    description: "Legal services - regulatory compliance",
+    amount: 22000.0,
+    currency: "usd",
+    billedAt: "2026-03-01",
+    coding: {
+      glAccountCode: "6400",
+      glAccountName: "Legal & Professional Fees",
+      department: "Legal",
+      class: "General & Administrative",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_030",
+    vendorName: "Baker McKenzie LLP",
+    description: "Expenses - travel and filing fees",
+    amount: 2300.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6400",
+      glAccountName: "Legal & Professional Fees",
+      department: "Legal",
+      class: "General & Administrative",
+      location: "US - San Francisco",
+    },
+  },
+
+  // Datadog - Engineering tools
+  {
+    billId: "bill_040",
+    vendorName: "Datadog",
+    description: "Infrastructure monitoring - Pro plan",
+    amount: 8900.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6210",
+      glAccountName: "Software Subscriptions",
+      department: "Engineering",
+      class: "Platform",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_041",
+    vendorName: "Datadog",
+    description: "APM and log management",
+    amount: 6700.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6210",
+      glAccountName: "Software Subscriptions",
+      department: "Engineering",
+      class: "Platform",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_042",
+    vendorName: "Datadog",
+    description: "Security monitoring add-on",
+    amount: 2200.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6210",
+      glAccountName: "Software Subscriptions",
+      department: "Engineering",
+      class: "Platform",
+      location: "US - San Francisco",
+    },
+  },
+
+  // Gusto - Payroll
+  {
+    billId: "bill_050",
+    vendorName: "Gusto",
+    description: "Payroll processing - April 2026",
+    amount: 1250.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6300",
+      glAccountName: "Payroll Services",
+      department: "People",
+      class: "General & Administrative",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_051",
+    vendorName: "Gusto",
+    description: "Payroll processing - March 2026",
+    amount: 1250.0,
+    currency: "usd",
+    billedAt: "2026-03-01",
+    coding: {
+      glAccountCode: "6300",
+      glAccountName: "Payroll Services",
+      department: "People",
+      class: "General & Administrative",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_050",
+    vendorName: "Gusto",
+    description: "Benefits administration",
+    amount: 890.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6310",
+      glAccountName: "Employee Benefits",
+      department: "People",
+      class: "General & Administrative",
+      location: "US - San Francisco",
+    },
+  },
+];

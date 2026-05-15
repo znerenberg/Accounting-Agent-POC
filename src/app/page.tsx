@@ -67,9 +67,9 @@ function confidenceBg(confidence: string) {
 }
 
 function ruleTypeLabel(type: AutomationRuleType) {
-  if (type === "vendor_default") return "Vendor default";
-  if (type === "description_match") return "Description match";
-  return "AI rule";
+  if (type === "vendor_default") return "IF vendor is";
+  if (type === "description_match") return "IF line item contains";
+  return "IF line item means";
 }
 
 function lineItemDescription(lineItems: LineItemInput[], lineItemId: string) {
@@ -280,8 +280,18 @@ export default function Home() {
     });
   };
 
-  const startRuleDraft = (suggestion: CodingSuggestion, type: AutomationRuleType) => {
+  const defaultRuleType = (suggestion: CodingSuggestion): AutomationRuleType => {
+    if (suggestion.source === "AI rule") return "ai_semantic";
+    if (suggestion.source === "Same as last bill" || suggestion.source === "Vendor rule") {
+      return "vendor_default";
+    }
+    return "description_match";
+  };
+
+  const startRuleDraft = (suggestion: CodingSuggestion) => {
     const description = lineItemDescription(lineItems, suggestion.lineItemId);
+    const type = defaultRuleType(suggestion);
+
     setRuleDraft({
       lineItemId: suggestion.lineItemId,
       type,
@@ -361,9 +371,10 @@ export default function Home() {
           <p>Reviewable AP coding automation from vendor history and saved rules</p>
         </div>
         <div className="demo-actions">
-          <button onClick={() => loadDemo("anthropic")}>Anthropic split</button>
-          <button onClick={() => loadDemo("datadog")}>Datadog default</button>
-          <button onClick={() => loadDemo("salesforce")}>Mixed vendor</button>
+          <span>Load demo:</span>
+          <button onClick={() => loadDemo("anthropic")}>Anthropic API vs seats</button>
+          <button onClick={() => loadDemo("datadog")}>Datadog vendor default</button>
+          <button onClick={() => loadDemo("salesforce")}>Salesforce mixed lines</button>
         </div>
       </div>
 
@@ -607,14 +618,8 @@ export default function Home() {
                     </div>
 
                     <div className="suggestion-actions">
-                      <button className="secondary-button" onClick={() => startRuleDraft(suggestion, "vendor_default")}>
-                        Save vendor rule
-                      </button>
-                      <button className="secondary-button" onClick={() => startRuleDraft(suggestion, "description_match")}>
-                        Save line rule
-                      </button>
-                      <button className="secondary-button" onClick={() => startRuleDraft(suggestion, "ai_semantic")}>
-                        Save AI rule
+                      <button className="secondary-button" onClick={() => startRuleDraft(suggestion)}>
+                        Save rule
                       </button>
                     </div>
 
@@ -622,7 +627,7 @@ export default function Home() {
                       <div className="rule-draft">
                         <div className="draft-row">
                           <label>
-                            Rule type
+                            IF
                             <select
                               value={ruleDraft.type}
                               onChange={(e) =>
@@ -631,9 +636,9 @@ export default function Home() {
                                 )
                               }
                             >
-                              <option value="vendor_default">Vendor default</option>
-                              <option value="description_match">Description match</option>
-                              <option value="ai_semantic">AI rule</option>
+                              <option value="vendor_default">Vendor is</option>
+                              <option value="description_match">Line item contains</option>
+                              <option value="ai_semantic">Line item means</option>
                             </select>
                           </label>
                           <label>
@@ -649,9 +654,16 @@ export default function Home() {
                           </label>
                         </div>
 
+                        {ruleDraft.type === "vendor_default" && (
+                          <label>
+                            Vendor
+                            <input value={vendorName} disabled />
+                          </label>
+                        )}
+
                         {ruleDraft.type !== "vendor_default" && (
                           <label>
-                            Match text
+                            {ruleDraft.type === "ai_semantic" ? "Line item keywords" : "Line item contains"}
                             <input
                               value={ruleDraft.matchText}
                               onChange={(e) =>
@@ -665,7 +677,7 @@ export default function Home() {
 
                         {ruleDraft.type === "ai_semantic" && (
                           <label>
-                            AI condition
+                            Meaning to match
                             <textarea
                               value={ruleDraft.condition}
                               onChange={(e) =>
@@ -677,6 +689,7 @@ export default function Home() {
                           </label>
                         )}
 
+                        <div className="builder-section-title">THEN code as</div>
                         <div className="coding-grid compact-grid">
                           <label>
                             GL code
@@ -819,6 +832,12 @@ export default function Home() {
           align-items: center;
           gap: 8px;
           flex-wrap: wrap;
+        }
+
+        .demo-actions span {
+          color: #6b7280;
+          font-size: 12px;
+          font-weight: 700;
         }
 
         button,
@@ -980,6 +999,12 @@ export default function Home() {
           letter-spacing: 0;
         }
 
+        input:disabled {
+          background: #f9fafb;
+          color: #6b7280;
+          cursor: not-allowed;
+        }
+
         textarea {
           min-height: 76px;
           resize: vertical;
@@ -1117,6 +1142,14 @@ export default function Home() {
           border: 1px solid #c7d2fe;
           border-radius: 8px;
           background: #f8fafc;
+        }
+
+        .builder-section-title {
+          margin-top: 14px;
+          color: #4b5563;
+          font-size: 12px;
+          font-weight: 800;
+          letter-spacing: 0;
         }
 
         .draft-row {

@@ -1,11 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 
-const anthropic = new Anthropic({
-  baseURL: process.env.LLM_GATEWAY_URL || "https://llm.staging.brexapps.io/gateway/anthropic",
-  apiKey: process.env.LLM_GATEWAY_API_KEY || "",
-});
-
 const DEMO_INVOICES: Record<string, { vendorName: string; lineItems: { description: string; amount: number }[] }> = {
   "anthropic-api-and-subscription.pdf": {
     vendorName: "Anthropic",
@@ -56,6 +51,17 @@ const DEMO_INVOICES: Record<string, { vendorName: string; lineItems: { descripti
     ],
   },
 };
+
+function getAnthropicClient() {
+  if (!process.env.LLM_GATEWAY_API_KEY) {
+    throw new Error("LLM_GATEWAY_API_KEY is not configured");
+  }
+
+  return new Anthropic({
+    baseURL: process.env.LLM_GATEWAY_URL || "https://llm.staging.brexapps.io/gateway/anthropic",
+    apiKey: process.env.LLM_GATEWAY_API_KEY,
+  });
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -131,7 +137,7 @@ If you cannot clearly read a field, use your best guess. Always return at least 
       },
     ];
 
-    const message = await anthropic.messages.create({
+    const message = await getAnthropicClient().messages.create({
       model: "claude-sonnet-4-5",
       max_tokens: 2048,
       messages: [{ role: "user", content }],

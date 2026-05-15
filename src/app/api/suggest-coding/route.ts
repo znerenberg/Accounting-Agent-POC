@@ -13,11 +13,6 @@ import type {
   SuggestionSource,
 } from "../../automation-rules";
 
-const anthropic = new Anthropic({
-  baseURL: process.env.LLM_GATEWAY_URL || "https://llm.staging.brexapps.io/gateway/anthropic",
-  apiKey: process.env.LLM_GATEWAY_API_KEY || "",
-});
-
 interface RequestLineItem {
   id: string;
   description: string;
@@ -65,6 +60,17 @@ const STOP_WORDS = new Set([
   "when",
   "with",
 ]);
+
+function getAnthropicClient() {
+  if (!process.env.LLM_GATEWAY_API_KEY) {
+    throw new Error("LLM_GATEWAY_API_KEY is not configured");
+  }
+
+  return new Anthropic({
+    baseURL: process.env.LLM_GATEWAY_URL || "https://llm.staging.brexapps.io/gateway/anthropic",
+    apiKey: process.env.LLM_GATEWAY_API_KEY,
+  });
+}
 
 function normalize(value: string): string {
   return value.toLowerCase().trim();
@@ -446,7 +452,7 @@ async function suggestFromHistoricalPatterns(
     )
     .join("\n");
 
-  const message = await anthropic.messages.create({
+  const message = await getAnthropicClient().messages.create({
     model: "claude-sonnet-4-5",
     max_tokens: 2048,
     messages: [

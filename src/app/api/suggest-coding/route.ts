@@ -372,6 +372,66 @@ function normalizeLlmSuggestion(raw: Partial<CodingSuggestion>, lineItemId: stri
   };
 }
 
+function textScore(a: string, b: string): number {
+  const aTokens = new Set(tokenize(a));
+  const bTokens = new Set(tokenize(b));
+  let score = 0;
+
+  for (const token of Array.from(aTokens)) {
+    if (bTokens.has(token)) score++;
+  }
+
+  if (normalize(a).includes(normalize(b)) || normalize(b).includes(normalize(a))) {
+    score += 3;
+  }
+
+  return score;
+}
+
+function suggestFromLocalHistory(
+  lineItems: RequestLineItem[],
+  history: HistoricalDisplayItem[]
+): CodingSuggestion[] {
+  return lineItems.map((lineItem) => {
+    const bestMatch = history
+      .map((item) => ({ item, score: textScore(lineItem.description, item.description) }))
+      .sort((a, b) => b.score - a.score)[0];
+
+    if (bestMatch && bestMatch.score > 0) {
+      return {
+        lineItemId: lineItem.id,
+        ...bestMatch.item.coding,
+        confidence: bestMatch.score >= 3 ? "high" : "medium",
+        source: "Historical pattern",
+        matchedRuleId: null,
+        matchedRuleName: null,
+        appliedAutomatically: false,
+        evidence: `Local match to prior line "${bestMatch.item.description}".`,
+        reasoning:
+          "Matched this line to the closest prior bill line because the LLM Gateway key is not configured.",
+      };
+    }
+
+    return {
+      lineItemId: lineItem.id,
+      glAccountCode: "-",
+      glAccountName: "Needs review",
+      department: null,
+      class: null,
+      location: null,
+      confidence: "low",
+      source: "Historical pattern",
+      matchedRuleId: null,
+      matchedRuleName: null,
+      appliedAutomatically: false,
+      evidence:
+        "No saved rule or close historical match was found. Add the coding once, then save it as a rule.",
+      reasoning:
+        "The app did not have enough local context to code this line without the LLM Gateway.",
+    };
+  });
+}
+
 async function suggestFromHistoricalPatterns(
   vendorName: string,
   lineItems: RequestLineItem[],
@@ -487,11 +547,9 @@ export async function POST(request: NextRequest) {
     applyConsistentHistory(lineItems, suggestionsByLineItem, responseHistoricalItems);
 
     const unresolvedLineItems = lineItems.filter((lineItem) => !suggestionsByLineItem.has(lineItem.id));
-    const llmSuggestions = await suggestFromHistoricalPatterns(
-      vendorName,
-      unresolvedLineItems,
-      historyContext
-    );
+    const llmSuggestions = process.env.LLM_GATEWAY_API_KEY
+      ? await suggestFromHistoricalPatterns(vendorName, unresolvedLineItems, historyContext)
+      : suggestFromLocalHistory(unresolvedLineItems, responseHistoricalItems);
 
     for (const suggestion of llmSuggestions) {
       if (suggestion.lineItemId) {

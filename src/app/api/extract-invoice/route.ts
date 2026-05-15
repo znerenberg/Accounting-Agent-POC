@@ -6,6 +6,57 @@ const anthropic = new Anthropic({
   apiKey: process.env.LLM_GATEWAY_API_KEY || "",
 });
 
+const DEMO_INVOICES: Record<string, { vendorName: string; lineItems: { description: string; amount: number }[] }> = {
+  "anthropic-api-and-subscription.pdf": {
+    vendorName: "Anthropic",
+    lineItems: [
+      { description: "API calls - Claude model token usage for production workflows", amount: 18200 },
+      { description: "Claude Team subscription - 12 seats", amount: 360 },
+    ],
+  },
+  "datadog-default-monitoring.pdf": {
+    vendorName: "Datadog",
+    lineItems: [
+      { description: "Infrastructure monitoring - Pro plan", amount: 8900 },
+      { description: "APM and log management", amount: 6700 },
+      { description: "Security monitoring add-on", amount: 2200 },
+    ],
+  },
+  "baker-mckenzie-same-as-last-bill.pdf": {
+    vendorName: "Baker McKenzie LLP",
+    lineItems: [
+      { description: "Legal services - contract review", amount: 18500 },
+      { description: "Legal services - regulatory compliance", amount: 22000 },
+    ],
+  },
+  "salesforce-mixed-rules-and-fallback.pdf": {
+    vendorName: "Salesforce",
+    lineItems: [
+      { description: "Marketing Cloud - email campaigns", amount: 3200 },
+      { description: "Sales Cloud Enterprise - 50 seats", amount: 7500 },
+      { description: "Tableau analytics - 10 viewer licenses", amount: 1500 },
+    ],
+  },
+  "flatiron-vendor-cleanup-default.pdf": {
+    vendorName: "Flatiron Health",
+    lineItems: [
+      { description: "Clinical data platform subscription", amount: 9600 },
+      { description: "Implementation support services", amount: 2400 },
+    ],
+  },
+  "sample-invoice-aws.pdf": {
+    vendorName: "Amazon Web Services",
+    lineItems: [
+      { description: "EC2 Reserved Instances - m5.2xlarge (production)", amount: 13500 },
+      { description: "RDS PostgreSQL Multi-AZ - db.r5.xlarge", amount: 5550 },
+      { description: "S3 Standard Storage (4.2 TB)", amount: 3800 },
+      { description: "CloudFront CDN - Data Transfer (8.5 TB)", amount: 1420 },
+      { description: "AWS Business Support Plan", amount: 2400 },
+      { description: "Lambda - Function Invocations (45M requests)", amount: 890 },
+    ],
+  },
+};
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
@@ -13,6 +64,21 @@ export async function POST(request: NextRequest) {
 
     if (!file) {
       return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
+    }
+
+    const demoInvoice = DEMO_INVOICES[file.name];
+    if (demoInvoice) {
+      return NextResponse.json(demoInvoice);
+    }
+
+    if (!process.env.LLM_GATEWAY_API_KEY) {
+      return NextResponse.json(
+        {
+          error:
+            "Invoice upload needs LLM_GATEWAY_API_KEY for arbitrary PDFs. The bundled demo PDFs work without a key.",
+        },
+        { status: 400 }
+      );
     }
 
     const bytes = await file.arrayBuffer();

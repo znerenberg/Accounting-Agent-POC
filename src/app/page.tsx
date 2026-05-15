@@ -95,6 +95,20 @@ function shortMatchText(description: string) {
   return words.slice(0, 3).join(" ") || description;
 }
 
+function codingKey(coding: CodingDimensions) {
+  return [
+    coding.glAccountCode,
+    coding.glAccountName,
+    coding.department || "",
+    coding.class || "",
+    coding.location || "",
+  ].join("|");
+}
+
+function hasMixedHistoricalCoding(history: HistoricalItem[]) {
+  return new Set(history.map((item) => codingKey(item.coding))).size > 1;
+}
+
 export default function Home() {
   const [vendorName, setVendorName] = useState("");
   const [customerAccountId, setCustomerAccountId] = useState("");
@@ -297,6 +311,11 @@ export default function Home() {
     if (suggestion.source === "Same as last bill" || suggestion.source === "Vendor rule") {
       return "vendor_default";
     }
+
+    if (suggestion.source === "Historical pattern" && hasMixedHistoricalCoding(result?.historicalItems || [])) {
+      return "ai_semantic";
+    }
+
     return "description_match";
   };
 
@@ -634,12 +653,17 @@ export default function Home() {
 
                     <div className="suggestion-actions">
                       <button className="secondary-button" onClick={() => startRuleDraft(suggestion)}>
-                        Save rule
+                        Create rule from suggestion
                       </button>
                     </div>
 
                     {isDraftOpen && (
                       <div className="rule-draft">
+                        <div className="rule-draft-header">
+                          <strong>Suggested rule draft</strong>
+                          <span>Review the conditions, then save to turn this into an automation.</span>
+                        </div>
+
                         <div className="builder-section-title">IF</div>
                         <div className="draft-row">
                           <label>
@@ -1178,6 +1202,23 @@ export default function Home() {
           border: 1px solid #c7d2fe;
           border-radius: 8px;
           background: #f8fafc;
+        }
+
+        .rule-draft-header {
+          display: grid;
+          gap: 4px;
+          margin-bottom: 12px;
+        }
+
+        .rule-draft-header strong {
+          color: #111827;
+          font-size: 14px;
+        }
+
+        .rule-draft-header span {
+          color: #6b7280;
+          font-size: 13px;
+          line-height: 1.35;
         }
 
         .builder-section-title {

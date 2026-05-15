@@ -109,6 +109,68 @@ export const MOCK_HISTORICAL_LINE_ITEMS: HistoricalLineItem[] = [
     },
   },
 
+  // Anthropic - natural-language rules split API usage from subscriptions
+  {
+    billId: "bill_006",
+    vendorName: "Anthropic",
+    description: "API calls - Claude 3.5 Sonnet token usage",
+    amount: 18200.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "5100",
+      glAccountName: "Cost of Goods Sold - AI Usage",
+      department: "Engineering",
+      class: "Cost of Revenue",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_007",
+    vendorName: "Anthropic",
+    description: "Platform API usage - model inference",
+    amount: 16400.0,
+    currency: "usd",
+    billedAt: "2026-03-01",
+    coding: {
+      glAccountCode: "5100",
+      glAccountName: "Cost of Goods Sold - AI Usage",
+      department: "Engineering",
+      class: "Cost of Revenue",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_008",
+    vendorName: "Anthropic",
+    description: "Claude Team subscription - 12 seats",
+    amount: 360.0,
+    currency: "usd",
+    billedAt: "2026-04-01",
+    coding: {
+      glAccountCode: "6210",
+      glAccountName: "Software Subscriptions",
+      department: "Engineering",
+      class: "General & Administrative",
+      location: "US - San Francisco",
+    },
+  },
+  {
+    billId: "bill_009",
+    vendorName: "Anthropic",
+    description: "Claude subscription licenses",
+    amount: 360.0,
+    currency: "usd",
+    billedAt: "2026-03-01",
+    coding: {
+      glAccountCode: "6210",
+      glAccountName: "Software Subscriptions",
+      department: "Engineering",
+      class: "General & Administrative",
+      location: "US - San Francisco",
+    },
+  },
+
   // WeWork - Office / Facilities
   {
     billId: "bill_010",

@@ -35,6 +35,7 @@ interface ApiResponse {
 interface RuleDraft {
   lineItemId: string;
   type: AutomationRuleType;
+  vendorName: string;
   name: string;
   matchText: string;
   condition: string;
@@ -66,10 +67,18 @@ function confidenceBg(confidence: string) {
   return "#fee2e2";
 }
 
-function ruleTypeLabel(type: AutomationRuleType) {
-  if (type === "vendor_default") return "IF vendor is";
-  if (type === "description_match") return "IF line item contains";
-  return "IF line item means";
+function ruleConditionSummary(rule: AutomationRule) {
+  const vendorCondition = `IF vendor is ${rule.vendorName}`;
+
+  if (rule.type === "vendor_default") {
+    return vendorCondition;
+  }
+
+  if (rule.type === "description_match") {
+    return `${vendorCondition} AND line item contains "${rule.matchText || ""}"`;
+  }
+
+  return `${vendorCondition} AND line item is like "${rule.matchText || rule.condition || ""}"`;
 }
 
 function lineItemDescription(lineItems: LineItemInput[], lineItemId: string) {
@@ -281,6 +290,9 @@ export default function Home() {
   };
 
   const defaultRuleType = (suggestion: CodingSuggestion): AutomationRuleType => {
+    const matchedRule = automationRules.find((rule) => rule.id === suggestion.matchedRuleId);
+    if (matchedRule) return matchedRule.type;
+
     if (suggestion.source === "AI rule") return "ai_semantic";
     if (suggestion.source === "Same as last bill" || suggestion.source === "Vendor rule") {
       return "vendor_default";
@@ -290,19 +302,21 @@ export default function Home() {
 
   const startRuleDraft = (suggestion: CodingSuggestion) => {
     const description = lineItemDescription(lineItems, suggestion.lineItemId);
+    const matchedRule = automationRules.find((rule) => rule.id === suggestion.matchedRuleId);
     const type = defaultRuleType(suggestion);
 
     setRuleDraft({
       lineItemId: suggestion.lineItemId,
       type,
-      name:
-        type === "vendor_default"
+      vendorName: matchedRule?.vendorName || vendorName.trim(),
+      name: matchedRule?.name || (type === "vendor_default"
           ? `${vendorName} default coding`
-          : `${vendorName} - ${shortMatchText(description)}`,
-      matchText: type === "vendor_default" ? "" : shortMatchText(description),
+          : `${vendorName} - ${shortMatchText(description)}`),
+      matchText:
+        type === "vendor_default" ? "" : matchedRule?.matchText || shortMatchText(description),
       condition:
         type === "ai_semantic"
-          ? `Use this when a ${vendorName} line item means ${description}.`
+          ? matchedRule?.condition || `Use this when a ${vendorName} line item means ${description}.`
           : "",
       coding: {
         glAccountCode: suggestion.glAccountCode,
@@ -331,13 +345,14 @@ export default function Home() {
   };
 
   const saveRuleDraft = () => {
-    if (!ruleDraft || !vendorName.trim()) return;
+    if (!ruleDraft || !ruleDraft.vendorName.trim()) return;
+    if (ruleDraft.type !== "vendor_default" && !ruleDraft.matchText.trim()) return;
 
     const newRule: AutomationRule = {
       id: `user-${Date.now()}`,
-      name: ruleDraft.name.trim() || `${vendorName} coding rule`,
+      name: ruleDraft.name.trim() || `${ruleDraft.vendorName} coding rule`,
       type: ruleDraft.type,
-      vendorName: vendorName.trim(),
+      vendorName: ruleDraft.vendorName.trim(),
       enabled: true,
       matchText:
         ruleDraft.type === "vendor_default" ? undefined : ruleDraft.matchText.trim(),
@@ -521,7 +536,7 @@ export default function Home() {
                   <div>
                     <div className="rule-title">{rule.name}</div>
                     <div className="rule-meta">
-                      {rule.vendorName} · {ruleTypeLabel(rule.type)} · GL {rule.coding.glAccountCode}
+                      {ruleConditionSummary(rule)} · GL {rule.coding.glAccountCode}
                     </div>
                   </div>
                   <div className="rule-actions">
@@ -625,21 +640,19 @@ export default function Home() {
 
                     {isDraftOpen && (
                       <div className="rule-draft">
+                        <div className="builder-section-title">IF</div>
                         <div className="draft-row">
                           <label>
-                            IF
-                            <select
-                              value={ruleDraft.type}
+                            Vendor is
+                            <input
+                              value={ruleDraft.vendorName}
+                              list="vendor-suggestions"
                               onChange={(e) =>
                                 setRuleDraft((draft) =>
-                                  draft ? { ...draft, type: e.target.value as AutomationRuleType } : draft
+                                  draft ? { ...draft, vendorName: e.target.value } : draft
                                 )
                               }
-                            >
-                              <option value="vendor_default">Vendor is</option>
-                              <option value="description_match">Line item contains</option>
-                              <option value="ai_semantic">Line item means</option>
-                            </select>
+                            />
                           </label>
                           <label>
                             Rule name
@@ -654,16 +667,32 @@ export default function Home() {
                           </label>
                         </div>
 
-                        {ruleDraft.type === "vendor_default" && (
+                        <div className="draft-row">
                           <label>
-                            Vendor
-                            <input value={vendorName} disabled />
+                            AND line item
+                            <select
+                              value={ruleDraft.type}
+                              onChange={(e) =>
+                                setRuleDraft((draft) =>
+                                  draft ? { ...draft, type: e.target.value as AutomationRuleType } : draft
+                                )
+                              }
+                            >
+                              <option value="vendor_default">Any line item for this vendor</option>
+                              <option value="description_match">Contains text</option>
+                              <option value="ai_semantic">Is like...</option>
+                            </select>
                           </label>
-                        )}
+                          {ruleDraft.type === "vendor_default" && (
+                            <div className="condition-note">
+                              Applies to every line on bills from this vendor.
+                            </div>
+                          )}
+                        </div>
 
                         {ruleDraft.type !== "vendor_default" && (
                           <label>
-                            {ruleDraft.type === "ai_semantic" ? "Line item keywords" : "Line item contains"}
+                            {ruleDraft.type === "ai_semantic" ? "Line item like" : "Line item contains"}
                             <input
                               value={ruleDraft.matchText}
                               onChange={(e) =>
@@ -722,7 +751,14 @@ export default function Home() {
                         </div>
 
                         <div className="suggestion-actions">
-                          <button className="primary-button small" onClick={saveRuleDraft}>
+                          <button
+                            className="primary-button small"
+                            onClick={saveRuleDraft}
+                            disabled={
+                              !ruleDraft.vendorName.trim() ||
+                              (ruleDraft.type !== "vendor_default" && !ruleDraft.matchText.trim())
+                            }
+                          >
                             Save rule
                           </button>
                           <button className="secondary-button" onClick={() => setRuleDraft(null)}>
@@ -1150,6 +1186,20 @@ export default function Home() {
           font-size: 12px;
           font-weight: 800;
           letter-spacing: 0;
+        }
+
+        .condition-note {
+          align-self: end;
+          min-height: 40px;
+          display: flex;
+          align-items: center;
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          background: #ffffff;
+          color: #6b7280;
+          padding: 8px 11px;
+          font-size: 13px;
+          line-height: 1.35;
         }
 
         .draft-row {

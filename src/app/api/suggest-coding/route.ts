@@ -176,7 +176,7 @@ function applyAutomationRules(
             rule,
             lineItem,
             "high",
-            `Line description matched "${rule.matchText}".`
+            `Vendor matched ${rule.vendorName}; line description matched "${rule.matchText}".`
           )
         );
         break;
@@ -189,8 +189,8 @@ function applyAutomationRules(
           lineItem,
           score >= 2 ? "high" : "medium",
           rule.condition
-            ? `Matched natural-language condition: ${rule.condition}`
-            : `Matched keywords from "${rule.matchText}".`
+            ? `Vendor matched ${rule.vendorName}; line item looked like: ${rule.condition}`
+            : `Vendor matched ${rule.vendorName}; line item matched keywords from "${rule.matchText}".`
         )
       );
       break;

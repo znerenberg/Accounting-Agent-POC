@@ -55,6 +55,14 @@ const sourceStyles: Record<CodingSuggestion["source"], { bg: string; color: stri
   "Historical pattern": { bg: "#f3f4f6", color: "#374151" },
 };
 
+function sourceLabel(suggestion: CodingSuggestion) {
+  if (suggestion.matchedRuleId === "seed-datadog-default") {
+    return "Same as last bill";
+  }
+
+  return suggestion.source;
+}
+
 function confidenceColor(confidence: string) {
   if (confidence === "high") return "#15803d";
   if (confidence === "medium") return "#a16207";
@@ -588,7 +596,8 @@ export default function Home() {
               </div>
 
               {result.suggestions.map((suggestion) => {
-                const sourceStyle = sourceStyles[suggestion.source] || sourceStyles["Historical pattern"];
+                const displayedSource = sourceLabel(suggestion);
+                const sourceStyle = sourceStyles[displayedSource] || sourceStyles["Historical pattern"];
                 const isDraftOpen = ruleDraft?.lineItemId === suggestion.lineItemId;
 
                 return (
@@ -597,7 +606,7 @@ export default function Home() {
                       <strong>{lineItemDescription(lineItems, suggestion.lineItemId)}</strong>
                       <div className="chip-row">
                         <span className="source-chip" style={{ background: sourceStyle.bg, color: sourceStyle.color }}>
-                          {suggestion.source}
+                          {displayedSource}
                         </span>
                         <span
                           className="source-chip"

@@ -69,6 +69,7 @@ function getAnthropicClient() {
   return new Anthropic({
     baseURL: process.env.LLM_GATEWAY_URL || "https://llm.staging.brexapps.io/gateway/anthropic",
     apiKey: process.env.LLM_GATEWAY_API_KEY,
+    defaultHeaders: { "x-skip-generative-ai-check": "true" },
   });
 }
 

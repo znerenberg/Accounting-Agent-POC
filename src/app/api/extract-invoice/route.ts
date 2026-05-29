@@ -39,6 +39,21 @@ const DEMO_INVOICES: Record<string, { vendorName: string; lineItems: { descripti
       { description: "Implementation support services", amount: 2400 },
     ],
   },
+  "crowe-all-dimensions-history.pdf": {
+    vendorName: "Crowe LLP",
+    lineItems: [
+      { description: "Audit and assurance services - monthly retainer", amount: 11500 },
+      { description: "Tax advisory and compliance support", amount: 4200 },
+    ],
+  },
+  "cdw-mixed-line-history.pdf": {
+    vendorName: "CDW CANADA CORP.",
+    lineItems: [
+      { description: "UV82W4PODG", amount: 8527.12 },
+      { description: "ZJ2MJJAVWV", amount: 18.47 },
+      { description: "HST", amount: 451.1 },
+    ],
+  },
   "sample-invoice-aws.pdf": {
     vendorName: "Amazon Web Services",
     lineItems: [

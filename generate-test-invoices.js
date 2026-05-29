@@ -153,6 +153,66 @@ const invoices = [
     tax: "$0.00",
     total: "$12,000.00",
   },
+  {
+    fileName: "crowe-all-dimensions-history.pdf",
+    vendorName: "Crowe LLP",
+    invoiceNumber: "CR-2026-0522",
+    date: "May 22, 2026",
+    dueDate: "June 21, 2026",
+    memo: "Shows live Snowflake history filling GL, department, class, and location from prior bills.",
+    billTo: ["Brex Inc.", "Finance", "San Francisco, CA"],
+    vendorAddress: ["225 West Wacker Drive", "Chicago, IL 60606", "United States"],
+    lines: [
+      {
+        description: "Audit and assurance services - monthly retainer",
+        qty: "1",
+        unitPrice: "$11,500.00",
+        amount: "$11,500.00",
+      },
+      {
+        description: "Tax advisory and compliance support",
+        qty: "1",
+        unitPrice: "$4,200.00",
+        amount: "$4,200.00",
+      },
+    ],
+    subtotal: "$15,700.00",
+    tax: "$0.00",
+    total: "$15,700.00",
+  },
+  {
+    fileName: "cdw-mixed-line-history.pdf",
+    vendorName: "CDW CANADA CORP.",
+    invoiceNumber: "CDW-2026-0428-MIX",
+    date: "May 20, 2026",
+    dueDate: "June 19, 2026",
+    memo: "Shows live line-item history splitting hardware, freight, and tax coding for the same vendor.",
+    billTo: ["Brex Inc.", "IT Procurement", "San Francisco, CA"],
+    vendorAddress: ["200 N Milwaukee Avenue", "Vernon Hills, IL 60061", "United States"],
+    lines: [
+      {
+        description: "UV82W4PODG",
+        qty: "1",
+        unitPrice: "$8,527.12",
+        amount: "$8,527.12",
+      },
+      {
+        description: "ZJ2MJJAVWV",
+        qty: "1",
+        unitPrice: "$18.47",
+        amount: "$18.47",
+      },
+      {
+        description: "HST",
+        qty: "1",
+        unitPrice: "$451.10",
+        amount: "$451.10",
+      },
+    ],
+    subtotal: "$8,996.69",
+    tax: "$0.00",
+    total: "$8,996.69",
+  },
 ];
 
 function drawInvoice(invoice) {

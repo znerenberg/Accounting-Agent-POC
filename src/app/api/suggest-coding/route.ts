@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execSync } from "child_process";
 import Anthropic from "@anthropic-ai/sdk";
 import {
   MOCK_HISTORICAL_LINE_ITEMS,
   HistoricalLineItem,
   CodingDimensions,
 } from "../../mock-data";
+import {
+  querySnowflakeHistory,
+  type SnowflakeBill,
+} from "../../snowflake-history";
 import type {
   AutomationRule,
   CodingSuggestion,
@@ -20,22 +23,19 @@ interface RequestLineItem {
   currency: string;
 }
 
-interface SnowflakeBill {
-  VENDOR_NAME: string;
-  PURCHASED_AT: string;
-  AMOUNT: string;
-  GL_VALUE: string | null;
-  DEPARTMENT_VALUE: string | null;
-  CLASS_VALUE: string | null;
-  LOCATION_VALUE: string | null;
-}
-
 interface HistoricalDisplayItem {
   description: string;
   amount: number;
   billedAt: string;
   coding: CodingDimensions;
 }
+
+type ConsistentCoding = {
+  coding: CodingDimensions;
+  count: number;
+  ratio: number;
+  presentDimensions: string[];
+};
 
 const STOP_WORDS = new Set([
   "a",
@@ -201,6 +201,14 @@ function applyAutomationRules(
   return suggestions;
 }
 
+function codingHasGlValue(coding: CodingDimensions): boolean {
+  return Boolean(coding.glAccountCode && coding.glAccountCode !== "-");
+}
+
+function hasValue(value: string | null | undefined): value is string {
+  return Boolean(value && value !== "-");
+}
+
 function codingKey(coding: CodingDimensions): string {
   return [
     coding.glAccountCode,
@@ -211,36 +219,89 @@ function codingKey(coding: CodingDimensions): string {
   ].join("|");
 }
 
-function findConsistentCoding(history: HistoricalDisplayItem[]): {
-  coding: CodingDimensions;
-  count: number;
-  ratio: number;
-} | null {
-  if (history.length < 2) return null;
+function topValue(
+  values: Array<string | null | undefined>,
+  options: { minimumCoverage?: number } = {}
+) {
+  const presentValues = values.filter(hasValue);
+  if (presentValues.length < 2) return null;
 
-  const grouped = new Map<string, { coding: CodingDimensions; count: number }>();
-  for (const item of history) {
-    const key = codingKey(item.coding);
-    const group = grouped.get(key) || { coding: item.coding, count: 0 };
-    group.count++;
-    grouped.set(key, group);
+  const counts = new Map<string, number>();
+  for (const value of presentValues) {
+    counts.set(value, (counts.get(value) || 0) + 1);
   }
 
-  const top = Array.from(grouped.values()).sort((a, b) => b.count - a.count)[0];
-  const ratio = top.count / history.length;
-  if (top.count >= 2 && ratio >= 0.85) {
-    return { coding: top.coding, count: top.count, ratio };
+  const [value, count] = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0];
+  const ratio = count / presentValues.length;
+  const coverage = presentValues.length / values.length;
+
+  if (count < 2 || ratio < 0.85 || coverage < (options.minimumCoverage || 0)) {
+    return null;
   }
 
-  return null;
+  return { value, count, ratio, coverage };
+}
+
+function findConsistentCoding(history: HistoricalDisplayItem[]): ConsistentCoding | null {
+  const codedHistory = history.filter((item) => codingHasGlValue(item.coding));
+  if (codedHistory.length < 2) return null;
+
+  const gl = topValue(codedHistory.map((item) => item.coding.glAccountCode));
+  if (!gl) return null;
+
+  const matchingGlHistory = codedHistory.filter((item) => item.coding.glAccountCode === gl.value);
+  const department = topValue(
+    matchingGlHistory.map((item) => item.coding.department),
+    { minimumCoverage: 0.5 }
+  );
+  const classValue = topValue(
+    matchingGlHistory.map((item) => item.coding.class),
+    { minimumCoverage: 0.5 }
+  );
+  const location = topValue(
+    matchingGlHistory.map((item) => item.coding.location),
+    { minimumCoverage: 0.5 }
+  );
+  const presentDimensions = ["GL"];
+  if (department) presentDimensions.push("Dept");
+  if (classValue) presentDimensions.push("Class");
+  if (location) presentDimensions.push("Location");
+
+  return {
+    coding: {
+      glAccountCode: gl.value,
+      glAccountName: `GL ${gl.value}`,
+      department: department?.value || null,
+      class: classValue?.value || null,
+      location: location?.value || null,
+    },
+    count: gl.count,
+    ratio: gl.ratio,
+    presentDimensions,
+  };
+}
+
+function codingSummary(coding: CodingDimensions) {
+  const parts = [`GL ${coding.glAccountCode}`];
+  if (coding.department) parts.push(`Dept ${coding.department}`);
+  if (coding.class) parts.push(`Class ${coding.class}`);
+  if (coding.location) parts.push(`Location ${coding.location}`);
+  return parts.join(", ");
+}
+
+function baselineLabel(consistentCoding: ConsistentCoding) {
+  if (consistentCoding.presentDimensions.length === 1) {
+    return "GL";
+  }
+
+  return consistentCoding.presentDimensions.join("/");
 }
 
 function applyConsistentHistory(
   lineItems: RequestLineItem[],
   existingSuggestions: Map<string, CodingSuggestion>,
-  history: HistoricalDisplayItem[]
+  consistentCoding: ConsistentCoding | null
 ) {
-  const consistentCoding = findConsistentCoding(history);
   if (!consistentCoding) return;
 
   const percent = Math.round(consistentCoding.ratio * 100);
@@ -255,9 +316,27 @@ function applyConsistentHistory(
       matchedRuleId: null,
       matchedRuleName: null,
       appliedAutomatically: false,
-      evidence: `${percent}% of recent line items from this vendor used this same coding.`,
+      evidence: `${percent}% of recent coded bills from this vendor used this ${baselineLabel(consistentCoding)} coding: ${codingSummary(consistentCoding.coding)}.`,
       reasoning:
-        "The vendor history is consistent, so this copies the dominant prior coding for review.",
+        "The vendor history is consistent, so this copies the dominant prior coding dimensions for review.",
+    });
+  }
+}
+
+function noteRuleHistoryDifference(
+  suggestions: Map<string, CodingSuggestion>,
+  consistentCoding: ConsistentCoding | null
+) {
+  if (!consistentCoding) return;
+
+  const historicalKey = codingKey(consistentCoding.coding);
+  for (const [lineItemId, suggestion] of Array.from(suggestions.entries())) {
+    if (!suggestion.matchedRuleId || codingKey(suggestion) === historicalKey) continue;
+
+    const percent = Math.round(consistentCoding.ratio * 100);
+    suggestions.set(lineItemId, {
+      ...suggestion,
+      evidence: `${suggestion.evidence} Note: ${percent}% of prior coded bills from this vendor used ${codingSummary(consistentCoding.coding)}, so this saved rule differs from recent history.`,
     });
   }
 }
@@ -278,40 +357,26 @@ function findRelevantHistory(vendorName: string): HistoricalLineItem[] {
   });
 }
 
-function querySnowflakeHistory(vendorName: string, customerAccountId: string): SnowflakeBill[] | null {
-  try {
-    const escapedVendor = vendorName.replace(/'/g, "''");
-    const escapedCustomer = customerAccountId.replace(/'/g, "''");
-
-    const query = `SELECT v.NAME as VENDOR_NAME, e.PURCHASED_AT, GET_PATH(e.BILLING_AMOUNT, 'quantity') as AMOUNT, MAX(CASE WHEN efv.KEY LIKE 'gl_account_%' THEN efv.VALUE END) as GL_VALUE, MAX(CASE WHEN efv.KEY LIKE 'department_%' THEN efv.VALUE END) as DEPARTMENT_VALUE, MAX(CASE WHEN efv.KEY LIKE 'class_%' THEN efv.VALUE END) as CLASS_VALUE, MAX(CASE WHEN efv.KEY LIKE 'location_%' THEN efv.VALUE END) as LOCATION_VALUE FROM EXPENSES_V2.EXPENSES_V2.EXPENSES e JOIN EXPENSES_V2.EXPENSES_V2.VENDORS v ON v.ID = e.VENDORS_VENDOR_ID LEFT JOIN EXPENSES_V2.EXPENSES_V2.EXTENSIBLE_FIELDS_EXTENDED_FIELD_VALUES efv ON efv.SOURCE_OBJECT_ID = e.ID AND efv.SOURCE_OBJECT_TYPE = 'EXPENSE' AND (efv.KEY LIKE 'gl_account_%' OR efv.KEY LIKE 'department_%' OR efv.KEY LIKE 'class_%' OR efv.KEY LIKE 'location_%') WHERE e.EXPENSE_TYPE = 'BILLPAY' AND e.CUSTOMER_ACCOUNT_ID = '${escapedCustomer}' AND LOWER(v.NAME) LIKE LOWER('%${escapedVendor}%') GROUP BY v.NAME, e.PURCHASED_AT, e.BILLING_AMOUNT, e.ID ORDER BY e.PURCHASED_AT DESC LIMIT 30`;
-
-    const result = execSync(
-      `snow sql -c brex -q "${query}" --format json`,
-      { encoding: "utf-8", timeout: 60000 }
-    );
-
-    return JSON.parse(result);
-  } catch {
-    return null;
-  }
-}
-
 function formatSnowflakeHistoryForPrompt(bills: SnowflakeBill[]): string {
   if (bills.length === 0) return "No historical data available for this vendor.";
 
-  const grouped = new Map<string, { count: number; amounts: number[] }>();
+  const grouped = new Map<string, { count: number; amounts: number[]; bill: SnowflakeBill }>();
   for (const bill of bills) {
-    const key = `GL:${bill.GL_VALUE || "none"}|Dept:${bill.DEPARTMENT_VALUE || "none"}|Class:${bill.CLASS_VALUE || "none"}|Loc:${bill.LOCATION_VALUE || "none"}`;
-    const entry = grouped.get(key) || { count: 0, amounts: [] };
+    const description = bill.DESCRIPTION || `Bill from ${bill.VENDOR_NAME}`;
+    const key = `${description}|GL:${bill.GL_VALUE || "none"}|Dept:${bill.DEPARTMENT_VALUE || "none"}|Class:${bill.CLASS_VALUE || "none"}|Loc:${bill.LOCATION_VALUE || "none"}`;
+    const entry = grouped.get(key) || { count: 0, amounts: [], bill };
     entry.count++;
     entry.amounts.push(parseFloat(bill.AMOUNT) || 0);
     grouped.set(key, entry);
   }
 
   const lines: string[] = [];
-  for (const [key, data] of Array.from(grouped.entries())) {
+  for (const [, data] of Array.from(grouped.entries())) {
     const avgAmount = data.amounts.reduce((a, b) => a + b, 0) / data.amounts.length;
-    lines.push(`[${data.count}x, avg $${avgAmount.toFixed(0)}] Coded as: ${key}`);
+    const bill = data.bill;
+    lines.push(
+      `[${data.count}x, avg $${avgAmount.toFixed(0)}] "${bill.DESCRIPTION || `Bill from ${bill.VENDOR_NAME}`}" -> GL ${bill.GL_VALUE || "none"}, Dept: ${bill.DEPARTMENT_VALUE || "N/A"}, Class: ${bill.CLASS_VALUE || "N/A"}, Location: ${bill.LOCATION_VALUE || "N/A"}`
+    );
   }
   return lines.join("\n");
 }
@@ -339,7 +404,7 @@ function formatMockHistoryForPrompt(items: HistoricalLineItem[]): string {
 
 function snowflakeBillsToHistory(bills: SnowflakeBill[]): HistoricalDisplayItem[] {
   return bills.map((b) => ({
-    description: `Bill from ${b.VENDOR_NAME}`,
+    description: b.DESCRIPTION || `Bill from ${b.VENDOR_NAME}`,
     amount: parseFloat(b.AMOUNT) || 0,
     billedAt: b.PURCHASED_AT,
     coding: {
@@ -361,7 +426,12 @@ function mockItemsToHistory(items: HistoricalLineItem[]): HistoricalDisplayItem[
   }));
 }
 
-function normalizeLlmSuggestion(raw: Partial<CodingSuggestion>, lineItemId: string): CodingSuggestion {
+function normalizeLlmSuggestion(
+  raw: Partial<CodingSuggestion>,
+  lineItemId: string,
+  defaultSource: SuggestionSource = "Historical pattern",
+  defaultEvidence = "Compared the new line item against prior vendor coding."
+): CodingSuggestion {
   return {
     lineItemId,
     glAccountCode: raw.glAccountCode || "-",
@@ -371,12 +441,92 @@ function normalizeLlmSuggestion(raw: Partial<CodingSuggestion>, lineItemId: stri
     location: raw.location || null,
     confidence: raw.confidence || "low",
     reasoning: raw.reasoning || "Suggested from historical vendor coding patterns.",
-    source: raw.source || "Historical pattern",
+    source: raw.source || defaultSource,
     matchedRuleId: raw.matchedRuleId || null,
     matchedRuleName: raw.matchedRuleName || null,
-    evidence: raw.evidence || raw.reasoning || "Compared the new line item against prior vendor coding.",
+    evidence: raw.evidence || raw.reasoning || defaultEvidence,
     appliedAutomatically: Boolean(raw.appliedAutomatically),
   };
+}
+
+function noCustomerHistorySuggestions(
+  lineItems: RequestLineItem[],
+  vendorName: string
+): CodingSuggestion[] {
+  return lineItems.map((lineItem) => ({
+    lineItemId: lineItem.id,
+    glAccountCode: "-",
+    glAccountName: "Needs review",
+    department: null,
+    class: null,
+    location: null,
+    confidence: "low",
+    source: "Accounting guidance",
+    matchedRuleId: null,
+    matchedRuleName: null,
+    appliedAutomatically: false,
+    evidence: `No customer-specific ${vendorName} history was found. Add coding for this line, then save it as a rule if it should apply next time.`,
+    reasoning:
+      "No customer-specific vendor history or LLM Gateway guidance was available for this line.",
+  }));
+}
+
+function anthropicAccountingGuidance(lineItem: RequestLineItem): CodingSuggestion | null {
+  const description = normalize(lineItem.description);
+  const apiUsage =
+    description.includes("api") ||
+    description.includes("token") ||
+    description.includes("model usage") ||
+    description.includes("inference");
+  const subscription =
+    description.includes("subscription") ||
+    description.includes("seat") ||
+    description.includes("license") ||
+    description.includes("team");
+
+  if (apiUsage) {
+    const reasoning =
+      "API usage for production workflows typically supports direct customer-facing product delivery and is commonly treated as Cost of Revenue, though this recommendation is not based on this customer's prior vendor history.";
+
+    return {
+      lineItemId: lineItem.id,
+      glAccountCode: "5000",
+      glAccountName: "Cost of Revenue - Third Party Services",
+      department: null,
+      class: null,
+      location: null,
+      confidence: "medium",
+      source: "Accounting guidance",
+      matchedRuleId: null,
+      matchedRuleName: null,
+      appliedAutomatically: false,
+      evidence: reasoning,
+      reasoning,
+    };
+  }
+
+  if (subscription) {
+    const reasoning =
+      "Team subscription seats are employee-focused tools typically classified as operating expense software subscriptions rather than cost of revenue, though this recommendation is not based on this customer's prior vendor history.";
+
+    return {
+      lineItemId: lineItem.id,
+      glAccountCode: "6200",
+      glAccountName: "Software Subscriptions",
+      department: null,
+      class: null,
+      location: null,
+      confidence: "medium",
+      source: "Accounting guidance",
+      matchedRuleId: null,
+      matchedRuleName: null,
+      appliedAutomatically: false,
+      evidence: reasoning,
+      reasoning,
+    };
+  }
+
+  return null;
 }
 
 function textScore(a: string, b: string): number {
@@ -393,6 +543,51 @@ function textScore(a: string, b: string): number {
   }
 
   return score;
+}
+
+function amountScore(lineAmount: number, historicalAmount: number): number {
+  if (!lineAmount || !historicalAmount) return 0;
+
+  const delta = Math.abs(lineAmount - historicalAmount);
+  const denominator = Math.max(Math.abs(lineAmount), Math.abs(historicalAmount), 1);
+  return Math.max(0, 1 - delta / denominator);
+}
+
+function applyLineHistoryMatches(
+  lineItems: RequestLineItem[],
+  existingSuggestions: Map<string, CodingSuggestion>,
+  history: HistoricalDisplayItem[]
+) {
+  const codedHistory = history.filter((item) => codingHasGlValue(item.coding));
+
+  for (const lineItem of lineItems) {
+    if (existingSuggestions.has(lineItem.id)) continue;
+
+    const bestMatch = codedHistory
+      .map((item) => ({
+        item,
+        score:
+          textScore(lineItem.description, item.description) +
+          amountScore(lineItem.amount, item.amount),
+      }))
+      .filter(({ score }) => score >= 2)
+      .sort((a, b) => b.score - a.score)[0];
+
+    if (!bestMatch) continue;
+
+    existingSuggestions.set(lineItem.id, {
+      lineItemId: lineItem.id,
+      ...bestMatch.item.coding,
+      confidence: bestMatch.score >= 4 ? "high" : "medium",
+      source: "Same as last bill",
+      matchedRuleId: null,
+      matchedRuleName: null,
+      appliedAutomatically: false,
+      evidence: `Matched prior ${bestMatch.item.billedAt.slice(0, 10)} line "${bestMatch.item.description}" coded as ${codingSummary(bestMatch.item.coding)}.`,
+      reasoning:
+        "Matched this invoice line to a previously coded line item from the same customer and vendor.",
+    });
+  }
 }
 
 function suggestFromLocalHistory(
@@ -509,6 +704,94 @@ Respond ONLY with valid JSON in this exact format:
   );
 }
 
+async function suggestFromAccountingGuidance(
+  vendorName: string,
+  lineItems: RequestLineItem[]
+): Promise<CodingSuggestion[]> {
+  if (lineItems.length === 0) return [];
+
+  if (normalize(vendorName).includes("anthropic")) {
+    const deterministicSuggestions = lineItems.map(anthropicAccountingGuidance);
+    if (deterministicSuggestions.every(Boolean)) {
+      return deterministicSuggestions as CodingSuggestion[];
+    }
+  }
+
+  const lineItemsContext = lineItems
+    .map(
+      (li) =>
+        `- ID: ${li.id} | Description: "${li.description}" | Amount: $${li.amount.toLocaleString()} ${li.currency}`
+    )
+    .join("\n");
+
+  const message = await getAnthropicClient().messages.create({
+    model: "claude-sonnet-4-5",
+    max_tokens: 2048,
+    messages: [
+      {
+        role: "user",
+        content: `You are an accounting automation assistant at a fintech company.
+
+There is no customer-specific bill history for this vendor. Do not claim the customer has coded this vendor before. Provide reviewable accounting guidance based on the line-item description, general accounting treatment, and common SaaS/vendor usage patterns.
+
+VENDOR: ${vendorName}
+
+NEW LINE ITEMS TO CODE:
+${lineItemsContext}
+
+Guidance:
+- Use at most "medium" confidence because there is no customer-specific history.
+- For API usage that directly supports product/customer workflows, Cost of Revenue may be appropriate.
+- For employee seats or internal subscriptions, Software Subscriptions or G&A/Engineering software treatment may be appropriate.
+- Use null for department, class, or location if they cannot be inferred from the line item itself.
+- The reasoning must explicitly say this is not based on this customer's prior vendor history.
+
+Respond ONLY with valid JSON in this exact format:
+{
+  "suggestions": [
+    {
+      "lineItemId": "the line item ID from above",
+      "glAccountCode": "suggested GL code, or '-' if it needs review",
+      "glAccountName": "suggested GL name, or 'Needs review'",
+      "department": "department value or null",
+      "class": "class value or null",
+      "location": "location value or null",
+      "confidence": "medium|low",
+      "reasoning": "one sentence explaining the accounting guidance and noting no customer-specific history exists"
+    }
+  ]
+}`,
+      },
+    ],
+  });
+
+  const content = message.content[0];
+  if (content.type !== "text") {
+    throw new Error("Unexpected response format");
+  }
+
+  const cleanedText = content.text
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```\s*$/, "")
+    .trim();
+
+  const parsed = JSON.parse(cleanedText) as { suggestions?: Partial<CodingSuggestion>[] };
+  return (parsed.suggestions || []).map((suggestion) => ({
+    ...normalizeLlmSuggestion(
+      suggestion,
+      suggestion.lineItemId || "",
+      "Accounting guidance",
+      "No customer-specific vendor history was found; this is accounting guidance for review."
+    ),
+    confidence: suggestion.confidence === "high" ? "medium" : suggestion.confidence || "low",
+    source: "Accounting guidance",
+    evidence:
+      suggestion.evidence ||
+      suggestion.reasoning ||
+      "No customer-specific vendor history was found; this is accounting guidance for review.",
+  }));
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -528,20 +811,19 @@ export async function POST(request: NextRequest) {
     }
 
     let historyContext: string;
-    let historicalSource: "snowflake" | "mock";
+    let historicalSource: "snowflake" | "mock" | "none";
     let responseHistoricalItems: HistoricalDisplayItem[] = [];
 
     if (customerAccountId) {
-      const sfResult = querySnowflakeHistory(vendorName, customerAccountId);
+      const sfResult = querySnowflakeHistory(vendorName, customerAccountId, 120);
       if (sfResult && sfResult.length > 0) {
         historyContext = formatSnowflakeHistoryForPrompt(sfResult);
         historicalSource = "snowflake";
         responseHistoricalItems = snowflakeBillsToHistory(sfResult);
       } else {
-        const historicalItems = findRelevantHistory(vendorName);
-        historyContext = formatMockHistoryForPrompt(historicalItems);
-        historicalSource = "mock";
-        responseHistoricalItems = mockItemsToHistory(historicalItems);
+        historyContext = `No customer-specific history was found for ${vendorName}.`;
+        historicalSource = "none";
+        responseHistoricalItems = [];
       }
     } else {
       const historicalItems = findRelevantHistory(vendorName);
@@ -550,13 +832,34 @@ export async function POST(request: NextRequest) {
       responseHistoricalItems = mockItemsToHistory(historicalItems);
     }
 
-    const suggestionsByLineItem = applyAutomationRules(vendorName, lineItems, automationRules);
-    applyConsistentHistory(lineItems, suggestionsByLineItem, responseHistoricalItems);
+    const userRules = automationRules.filter((rule) => rule.createdBy === "user");
+    const seedRules = automationRules.filter((rule) => rule.createdBy !== "user");
+    const consistentCoding = findConsistentCoding(responseHistoricalItems);
+    const suggestionsByLineItem = applyAutomationRules(vendorName, lineItems, userRules);
+
+    if (historicalSource === "snowflake") {
+      noteRuleHistoryDifference(suggestionsByLineItem, consistentCoding);
+      applyLineHistoryMatches(lineItems, suggestionsByLineItem, responseHistoricalItems);
+      applyConsistentHistory(lineItems, suggestionsByLineItem, consistentCoding);
+    } else if (historicalSource === "mock") {
+      const seedSuggestions = applyAutomationRules(vendorName, lineItems, seedRules);
+      for (const [lineItemId, suggestion] of Array.from(seedSuggestions.entries())) {
+        if (!suggestionsByLineItem.has(lineItemId)) {
+          suggestionsByLineItem.set(lineItemId, suggestion);
+        }
+      }
+
+      applyConsistentHistory(lineItems, suggestionsByLineItem, consistentCoding);
+    }
 
     const unresolvedLineItems = lineItems.filter((lineItem) => !suggestionsByLineItem.has(lineItem.id));
     const llmSuggestions = process.env.LLM_GATEWAY_API_KEY
-      ? await suggestFromHistoricalPatterns(vendorName, unresolvedLineItems, historyContext)
-      : suggestFromLocalHistory(unresolvedLineItems, responseHistoricalItems);
+      ? historicalSource === "none"
+        ? await suggestFromAccountingGuidance(vendorName, unresolvedLineItems)
+        : await suggestFromHistoricalPatterns(vendorName, unresolvedLineItems, historyContext)
+      : historicalSource === "none"
+        ? noCustomerHistorySuggestions(unresolvedLineItems, vendorName)
+        : suggestFromLocalHistory(unresolvedLineItems, responseHistoricalItems);
 
     for (const suggestion of llmSuggestions) {
       if (suggestion.lineItemId) {

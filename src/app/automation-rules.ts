@@ -8,6 +8,7 @@ export type SuggestionSource =
   | "Vendor rule"
   | "Same as last bill"
   | "AI rule"
+  | "Accounting guidance"
   | "Historical pattern";
 
 export type AutomationRuleType =

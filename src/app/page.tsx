@@ -29,7 +29,7 @@ interface ApiResponse {
   suggestions: CodingSuggestion[];
   historicalItems: HistoricalItem[];
   historicalCount: number;
-  dataSource?: "snowflake" | "mock";
+  dataSource?: "snowflake" | "mock" | "none";
 }
 
 interface RuleDraft {
@@ -51,6 +51,7 @@ const blankLineItem = (index: number): LineItemInput => ({
 const sourceStyles: Record<CodingSuggestion["source"], { bg: string; color: string }> = {
   "Vendor rule": { bg: "#eef2ff", color: "#3730a3" },
   "AI rule": { bg: "#ecfdf5", color: "#047857" },
+  "Accounting guidance": { bg: "#fff7ed", color: "#c2410c" },
   "Same as last bill": { bg: "#fef3c7", color: "#92400e" },
   "Historical pattern": { bg: "#f3f4f6", color: "#374151" },
 };
@@ -103,6 +104,45 @@ function shortMatchText(description: string) {
   return words.slice(0, 3).join(" ") || description;
 }
 
+function suggestedRuleMatchText(vendor: string, description: string) {
+  const normalized = description.toLowerCase();
+
+  if (vendor.toLowerCase().includes("anthropic")) {
+    if (
+      normalized.includes("api") ||
+      normalized.includes("token") ||
+      normalized.includes("model usage")
+    ) {
+      return "API calls";
+    }
+
+    if (
+      normalized.includes("subscription") ||
+      normalized.includes("seat") ||
+      normalized.includes("license")
+    ) {
+      return "Claude subscriptions";
+    }
+  }
+
+  return shortMatchText(description);
+}
+
+function semanticRuleCondition(vendor: string, description: string, matchText: string) {
+  if (vendor.toLowerCase().includes("anthropic")) {
+    if (matchText === "API calls") {
+      return "Use this when an Anthropic line item means API calls.";
+    }
+
+    if (matchText === "Claude subscriptions") {
+      return "Use this when an Anthropic line item means Claude subscriptions.";
+    }
+  }
+
+  const article = /^[aeiou]/i.test(vendor.trim()) ? "an" : "a";
+  return `Use this when ${article} ${vendor} line item means ${description}.`;
+}
+
 function codingKey(coding: CodingDimensions) {
   return [
     coding.glAccountCode,
@@ -124,6 +164,7 @@ export default function Home() {
   const [savedRules, setSavedRules] = useState<AutomationRule[]>([]);
   const [rulesLoaded, setRulesLoaded] = useState(false);
   const [ruleDraft, setRuleDraft] = useState<RuleDraft | null>(null);
+  const [liveHistoryStatus, setLiveHistoryStatus] = useState<"idle" | "checking" | "ready" | "miss" | "error">("idle");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<ApiResponse | null>(null);
@@ -148,6 +189,41 @@ export default function Home() {
     if (!rulesLoaded) return;
     window.localStorage.setItem(LOCAL_STORAGE_RULES_KEY, JSON.stringify(savedRules));
   }, [savedRules, rulesLoaded]);
+
+  useEffect(() => {
+    const vendor = vendorName.trim();
+    const customer = customerAccountId.trim();
+    if (!vendor || !customer) {
+      setLiveHistoryStatus("idle");
+      return;
+    }
+
+    let cancelled = false;
+    setLiveHistoryStatus("checking");
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({
+          vendor,
+          customer_account_id: customer,
+        });
+        const response = await fetch(`/api/history?${params.toString()}`);
+        const data = await response.json();
+        if (cancelled) return;
+
+        setLiveHistoryStatus(response.ok && data.total_bills > 0 ? "ready" : "miss");
+      } catch {
+        if (!cancelled) {
+          setLiveHistoryStatus("error");
+        }
+      }
+    }, 600);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [vendorName, customerAccountId]);
 
   const automationRules = useMemo(
     () => [...SEEDED_AUTOMATION_RULES, ...savedRules],
@@ -315,7 +391,9 @@ export default function Home() {
     const matchedRule = automationRules.find((rule) => rule.id === suggestion.matchedRuleId);
     if (matchedRule) return matchedRule.type;
 
-    if (suggestion.source === "AI rule") return "ai_semantic";
+    if (suggestion.source === "AI rule" || suggestion.source === "Accounting guidance") {
+      return "ai_semantic";
+    }
     if (suggestion.source === "Same as last bill" || suggestion.source === "Vendor rule") {
       return "vendor_default";
     }
@@ -331,6 +409,7 @@ export default function Home() {
     const description = lineItemDescription(lineItems, suggestion.lineItemId);
     const matchedRule = automationRules.find((rule) => rule.id === suggestion.matchedRuleId);
     const type = defaultRuleType(suggestion);
+    const matchText = matchedRule?.matchText || suggestedRuleMatchText(vendorName, description);
 
     setRuleDraft({
       lineItemId: suggestion.lineItemId,
@@ -338,12 +417,12 @@ export default function Home() {
       vendorName: matchedRule?.vendorName || vendorName.trim(),
       name: matchedRule?.name || (type === "vendor_default"
           ? `${vendorName} default coding`
-          : `${vendorName} - ${shortMatchText(description)}`),
+          : `${vendorName} - ${matchText}`),
       matchText:
-        type === "vendor_default" ? "" : matchedRule?.matchText || shortMatchText(description),
+        type === "vendor_default" ? "" : matchText,
       condition:
         type === "ai_semantic"
-          ? matchedRule?.condition || `Use this when a ${vendorName} line item means ${description}.`
+          ? matchedRule?.condition || semanticRuleCondition(vendorName, description, matchText)
           : "",
       coding: {
         glAccountCode: suggestion.glAccountCode,
@@ -503,6 +582,14 @@ export default function Home() {
               onChange={(e) => setCustomerAccountId(e.target.value)}
               placeholder="Optional for live Snowflake history"
             />
+            {liveHistoryStatus !== "idle" && (
+              <p className={`field-hint ${liveHistoryStatus}`}>
+                {liveHistoryStatus === "checking" && "Checking live history"}
+                {liveHistoryStatus === "ready" && "Live customer history ready"}
+                {liveHistoryStatus === "miss" && "No live history found for this vendor"}
+                {liveHistoryStatus === "error" && "Live history check failed"}
+              </p>
+            )}
 
             <div className="line-header">
               <label>Line Items</label>
@@ -809,7 +896,11 @@ export default function Home() {
               <div className="panel-header">
                 <h2>Historical Patterns Used</h2>
                 <span className={result.dataSource === "snowflake" ? "status-pill live" : "status-pill"}>
-                  {result.dataSource === "snowflake" ? "Live Snowflake" : "Sample data"}
+                  {result.dataSource === "snowflake"
+                    ? "Live Snowflake"
+                    : result.dataSource === "none"
+                      ? "No customer history"
+                      : "Sample data"}
                 </span>
               </div>
               <p className="history-count">
@@ -823,6 +914,8 @@ export default function Home() {
                       <th>Description</th>
                       <th>GL</th>
                       <th>Dept</th>
+                      <th>Class</th>
+                      <th>Location</th>
                       <th>Amount</th>
                     </tr>
                   </thead>
@@ -832,6 +925,8 @@ export default function Home() {
                         <td>{item.description}</td>
                         <td>{item.coding.glAccountCode}</td>
                         <td>{item.coding.department || "-"}</td>
+                        <td>{item.coding.class || "-"}</td>
+                        <td>{item.coding.location || "-"}</td>
                         <td>${item.amount.toLocaleString()}</td>
                       </tr>
                     ))}
@@ -1121,6 +1216,20 @@ export default function Home() {
         .history-count {
           color: #6b7280;
           font-size: 13px;
+        }
+
+        .field-hint {
+          margin: 6px 0 0;
+          color: #6b7280;
+          font-size: 12px;
+        }
+
+        .field-hint.ready {
+          color: #047857;
+        }
+
+        .field-hint.error {
+          color: #b91c1c;
         }
 
         .rule-list {

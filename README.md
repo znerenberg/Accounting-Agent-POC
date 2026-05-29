@@ -38,7 +38,7 @@ To use real historical bill coding from Snowflake instead of mock data:
 snow sql -c brex -q "SELECT 1"
 ```
 
-The app calls `snow` via subprocess in the API route. As long as your SSO session is active, it'll work.
+The app calls `snow` via subprocess in the API route. As long as your SSO session is active, it'll work. If your Snowflake CLI connection is not named `brex`, add `SNOWFLAKE_CONNECTION=<connection-name>` to `.env.local`.
 
 ### 4. Run it
 

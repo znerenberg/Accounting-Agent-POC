@@ -96,7 +96,7 @@ To use real customer bill history instead of mock data:
 snow sql -c brex -q "SELECT 1"
 ```
 
-As long as your SSO session stays active, the app can call Snowflake. Then when using the UI, paste a Customer Account ID like `cuacc_cl1bul55b000401qmifxrd70e` (CDW Canada has 1,933 bills for that customer).
+As long as your SSO session stays active, the app can call Snowflake. If your Snowflake CLI connection is not named `brex`, set `SNOWFLAKE_CONNECTION=<connection-name>` in `.env.local`. Then when using the UI, paste a Customer Account ID like `cuacc_cl1bul55b000401qmifxrd70e` (CDW Canada has 1,933 bills for that customer).
 
 ## How to demo it
 
